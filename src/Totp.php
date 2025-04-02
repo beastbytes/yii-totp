@@ -10,11 +10,6 @@ use Psr\Clock\ClockInterface;
 
 final class Totp
 {
-    public const DIGITS = 6;
-    public const DIGEST = 'sha1';
-    public const LEEWAY = 2;
-    public const PERIOD = 30;
-
     /** @var ?string $secret Secret value to generate OTP code; null if OTP not enabled */
     private ?string $secret = null;
     /** @var string $lastTotp Last validated OTP code */
