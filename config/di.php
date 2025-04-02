@@ -30,7 +30,7 @@ return [
             'iterations' => $params['beastbytes/yii-totp']['crypt']['iterations'],
             'kdfAlgorithm' => $params['beastbytes/yii-totp']['crypt']['kdfAlgorithm'],
             'authorizationKeyInfo' => $params['beastbytes/yii-totp']['crypt']['authorizationKeyInfo'],
-            'cryptSecret' => $params['beastbytes/yii-totp']['crypt']['secret'],
+            'key' => $params['beastbytes/yii-totp']['crypt']['key'],
         ],
     ]
 ];

@@ -49,8 +49,8 @@ class TotpService
      * @psalm-param non-empty-string $kdfAlgorithm Hash algorithm for key derivation
      * @param string $authorizationKeyInfo HKDF info value for derivation of message authentication key
      * @psalm-param non-empty-string $authorizationKeyInfo HKDF info value for derivation of message authentication key
-     * @param string $cryptSecret Secret key for encryption and decryption
-     * @psalm-param non-empty-string $cryptSecret Secret key for encryption and decryption
+     * @param string $key Key for encryption and decryption
+     * @psalm-param non-empty-string $key Key for encryption and decryption
      */
     public function __construct(
         private readonly ClockInterface $clock,
@@ -68,7 +68,7 @@ class TotpService
         int $iterations,
         string $kdfAlgorithm,
         string $authorizationKeyInfo,
-        private readonly string $cryptSecret,
+        private readonly string $key,
     )
     {
         $crypt = new Crypt($cipher);
@@ -223,7 +223,7 @@ class TotpService
                     'leeway' => $totp->getLeeway(),
                     'last_totp' => $totp->getLastTotp(),
                     'period' => $totp->getPeriod(),
-                    'secret' => $this->crypt->encryptByKey($totp->getSecret(), $this->cryptSecret, $userId),
+                    'secret' => $this->crypt->encryptByKey($totp->getSecret(), $this->key, $userId),
                     'user_id' => $userId,
                 ]
             )
@@ -268,7 +268,7 @@ class TotpService
             $reflectionProperty->setValue(
                 $totp,
                 $property === 'secret'
-                    ? $this->crypt->decryptByKey($data[$key], $this->cryptSecret, $userId)
+                    ? $this->crypt->decryptByKey($data[$key], $this->key, $userId)
                     : $data[$key]
             );
         }
