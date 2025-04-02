@@ -1,0 +1,64 @@
+{
+    "name": "beastbytes/yii-totp",
+    "description": "Time-based One Time Password (TOTP) library for Yii3",
+    "keywords": [
+        "totp",
+        "times-based one time password",
+        "one time password",
+        "RFC 6238",
+        "tfa",
+        "2fa",
+        "two-factor-authentication",
+        "yii3"
+    ],
+    "type": "library",
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "license": "BSD-3-Clause",
+    "authors": [
+        {
+            "name": "chris",
+            "email": "email@example.com"
+        }
+    ],
+    "require": {
+        "php": ">=8.1",
+        "ext-gd": "*",
+        "chillerlan/php-qrcode": "^5.0",
+        "httpsoft/http-message": "^1.0",
+        "spomky-labs/otphp": "^11.0",
+        "symfony/clock": "^v7.0",
+        "yiisoft/cookies": "^1.0",
+        "yiisoft/db": "^1.2",
+        "yiisoft/security": "^1.0",
+        "yiisoft/translator": "^3.0",
+        "yiisoft/user": "^2.0"
+    },
+    "require-dev": {
+        "rector/rector": "^1.0",
+        "vimeo/psalm": "~5.26",
+        "yiisoft/translator-extractor": "^2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "BeastBytes\\Yii\\Totp\\": "src/",
+            "BeastBytes\\Yii\\Totp\\Migration\\": "migrations/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "BeastBytes\\Yii\\Totp\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "config-plugin-file": "config.php"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "composer/package-versions-deprecated": true,
+            "infection/extension-installer": true,
+            "yiisoft/config": true
+        }
+    }
+}
