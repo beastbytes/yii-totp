@@ -5,6 +5,9 @@ declare(strict_types=1);
 use BeastBytes\Yii\Totp\CryptCipher;
 use BeastBytes\Yii\Totp\CryptKdfAlgorithm;
 use BeastBytes\Yii\Totp\TotpDigest;
+use OTPHP\OTPInterface;
+use OTPHP\TOTP;
+use OTPHP\TOTPInterface;
 
 /**
  * // Number of backup codes to generate
@@ -56,9 +59,9 @@ return [
         ],
         'totp' => [ // The default values work for authenticator apps like Google Authenticator
             'digest' => TotpDigest::sha1->name, // HMAC digest algorithm for TOTP
-            'digits' => TOTP_DIGITS,
+            'digits' => OTPInterface::DEFAULT_DIGITS,
             'leeway' => TOTP_LEEWAY,
-            'period' => TOTP_PERIOD,
+            'period' => TOTPInterface::DEFAULT_PERIOD,
         ]
     ],
 ];
