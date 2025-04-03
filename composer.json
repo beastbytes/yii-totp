@@ -29,6 +29,7 @@
         "spomky-labs/otphp": "^11.0",
         "symfony/clock": "^v7.0",
         "yiisoft/cookies": "^1.0",
+        "yiisoft/definitions": "^3.0",
         "yiisoft/db": "^1.2",
         "yiisoft/security": "^1.0",
         "yiisoft/translator": "^3.0",
@@ -38,6 +39,7 @@
         "phpunit/phpunit": "^10.0",
         "rector/rector": "^1.0",
         "vimeo/psalm": "^6.0",
+        "yiisoft/test-support": "^3.0",
         "yiisoft/translator-extractor": "^2.0"
     },
     "autoload": {
