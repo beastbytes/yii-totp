@@ -160,7 +160,7 @@ class TotpService
         ;
 
         return [
-            'qrcode' => (new QRCode())->render(
+            'qrCode' => (new QRCode())->render(
                 $this->totp->getProvisioningUri($label, $issuer, $params)
             ),
             'secret' => $this->totp->getSecret(),
