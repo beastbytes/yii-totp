@@ -6,9 +6,6 @@ namespace BeastBytes\Yii\Totp;
 
 use chillerlan\QRCode\QRCode;
 use Exception;
-use JsonException;
-use OTPHP\TOTPInterface;
-use Psr\Clock\ClockInterface;
 use ReflectionException;
 use ReflectionProperty;
 use Throwable;
@@ -23,60 +20,46 @@ use Yiisoft\Security\Random;
 
 class TotpService
 {
-    private const OTP_CODE_REGEX = '/^\d+$/';
-
-    private Crypt $crypt;
+    /**
+     * Number of backup codes to generate
+     */
+    public const BACKUP_CODE_COUNT = 10;
+    /**
+     * Length of each backup code
+     */
+    public const BACKUP_CODE_LENGTH = 16;
+    /** @var string Backup codes only contain digits and upper and lowercase letters */
+    public const BACKUP_CODE_REGEX = '/^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?!.*_)(?!.*\W)(?!.* ).+$/';
+    /**
+     * Derivation iterations count
+     */
+    public const CRYPT_ITERATIONS = 100000;
+    /**
+     * Encryption/Decryption key. Should be changed
+     */
+    public const CRYPT_KEY = 'rstswSLBfzMKLyELbvKSkfT3qkHjAVoSQtVNSkWimeiGbOABqJXA3NqFYtXyewpS';
 
     /**
-     * @param ClockInterface $clock Clock instance.
-     * @param ConnectionInterface $database Yii database connection instance.
-     * @param string $otpBackupCodesTable Table name for OTP backup codes.
-     * @psalm-param non-empty-string $otpBackupCodesTable Table name for OTP backup codes.
-     * @param string $totpTable Table name for TOTP codes and data.
-     * @psalm-param non-empty-string $totpTable Table name for OTP codes and data.     *
-     * @param string $totpDigest HMAC digest algorithm for TOTP.
-     * @psalm-param non-empty-string $totpDigest HMAC digest algorithm for TOTP.
-     * @param int $totpDigits Number of digits in the OTP code.
-     * @param int $totpLeeway Leeway in seconds that an OTP code is valid before or after the period;
-     * @param int $totpPeriod Period in seconds that an OTP code is valid.     *
-     * @param int $backupCodeCount Number of backup codes to generate
-     * @param int $backupCodeLength Length of each backup code
-     * @param PasswordHasher $passwordHasher Password hasher.
-     * @param string $cipher Encryption cipher
-     * @psalm-param non-empty-string $cipher Encryption cipher
-     * @param int $iterations Number of iterations for the key derivation function
-     * @param string $kdfAlgorithm Hash algorithm for key derivation
-     * @psalm-param non-empty-string $kdfAlgorithm Hash algorithm for key derivation
-     * @param string $authorizationKeyInfo HKDF info value for derivation of message authentication key
-     * @psalm-param non-empty-string $authorizationKeyInfo HKDF info value for derivation of message authentication key
-     * @param string $key Key for encryption and decryption
-     * @psalm-param non-empty-string $key Key for encryption and decryption
+     * @param positive-int $backupCodeCount Number of backup codes to generate
+     * @param positive-int $backupCodeLength Length of each backup code
+     * @param Crypt $crypt Crypt instance
+     * @param ConnectionInterface $database Yii database connection instance
+     * @psalm-param non-empty-string $encryptionKey Key for encryption and decryption
+     * @psalm-param non-empty-string $otpBackupCodeTable Table name for OTP backup codes
+     * @param Totp $totp TOTP instance
+     * @psalm-param non-empty-string $totpTable Table name for OTP codes and data
      */
     public function __construct(
-        private readonly ClockInterface $clock,
-        private readonly ConnectionInterface $database,
-        private readonly string $otpBackupCodesTable,
-        private readonly string $totpTable,
-        private readonly string $totpDigest,
-        private readonly int $totpDigits,
-        private readonly int $totpLeeway,
-        private readonly int $totpPeriod,
         private readonly int $backupCodeCount,
         private readonly int $backupCodeLength,
-        private readonly PasswordHasher $passwordHasher,
-        string $cipher,
-        int $iterations,
-        string $kdfAlgorithm,
-        string $authorizationKeyInfo,
-        private readonly string $key,
+        private readonly Crypt $crypt,
+        private readonly ConnectionInterface $database,
+        private readonly string $encryptionKey,
+        private readonly string $otpBackupCodeTable,
+        private readonly Totp $totp,
+        private readonly string $totpTable,
     )
     {
-        $crypt = new Crypt($cipher);
-        $crypt = $crypt->withDerivationIterations($iterations);
-        $crypt = $crypt->withKdfAlgorithm($kdfAlgorithm);
-        $crypt = $crypt->withKdfAlgorithm($authorizationKeyInfo);
-
-        $this->crypt = $crypt;
     }
 
     /**
@@ -84,34 +67,12 @@ class TotpService
      * @throws Throwable
      * @throws \Yiisoft\Db\Exception\Exception
      */
-    public function backupCodeCount(string $userId): int
+    public function countBackupCodes(string $userId): int
     {
         return (new Query($this->database))
-            ->from($this->otpBackupCodesTable)
+            ->from($this->otpBackupCodeTable)
             ->where(['user_id' => $userId])
             ->count()
-        ;
-    }
-
-    /**
-     * @throws InvalidConfigException
-     * @throws Throwable
-     * @throws InvalidArgumentException
-     * @throws \Yiisoft\Db\Exception\Exception
-     */
-    public function disable(string $userId): void
-    {
-        $this
-            ->database
-            ->createCommand()
-            ->delete($this->totpTable, ['user_id' => $userId])
-            ->execute()
-        ;
-        $this
-            ->database
-            ->createCommand()
-            ->delete($this->otpBackupCodesTable, ['user_id' => $userId])
-            ->execute()
         ;
     }
 
@@ -121,28 +82,30 @@ class TotpService
      * @throws Exception
      * @throws Throwable
      */
-    public function generateBackupCodes(string $userId): array
+    public function createBackupCodes(string $userId): array
     {
         $this
             ->database
             ->createCommand()
-            ->delete($this->otpBackupCodesTable, ['user_id' => $userId])
+            ->delete($this->otpBackupCodeTable, ['user_id' => $userId])
             ->execute()
         ;
 
         $codes = [];
         $rows = [];
+        $passwordHasher = new PasswordHasher();
+
         for ($i = 0; $i < $this->backupCodeCount; $i++) {
             do {
                 $code = Random::string($this->backupCodeLength);
-            } while (str_contains($code, '_') || preg_match(self::OTP_CODE_REGEX, $code) === 1);
+            } while (preg_match(self::BACKUP_CODE_REGEX, $code) === 0);
 
             $codes[] = $code;
             $rows[] = [
                 $userId,
-                $this
-                    ->passwordHasher
-                    ->hash($code),
+                $passwordHasher
+                    ->hash($code)
+                ,
             ];
         }
 
@@ -150,7 +113,7 @@ class TotpService
             ->database
             ->createCommand()
             ->batchInsert(
-                $this->otpBackupCodesTable,
+                $this->otpBackupCodeTable,
                 ['user_id', 'code'],
                 $rows,
             )
@@ -161,29 +124,114 @@ class TotpService
     }
 
     /**
-     * @param TOTPInterface $totp The TOTP object
-     * @param ?string $label Label for the TOTP. Usually the organisation or application name.
-     * @param ?string $issuer Issuer of the TOTP. Usually the application URL. Ignored if $label in null
-     * @return string Base-64 encoded string representation of the QR code
-     * @psalm-return  non-empty-string Base-64 encoded string representation of the QR code
-     * @throws Exception
+     * Creates a TOTP for a user and returns the provisioning QR code as a string
+     * that can be used as the src attribute of an <img/> tag and the secret value for the TOTP.
+     * The application should verify that the user can enter a valid TOTP code after creating a TOTP.
+     *
+     * @param string $userId id of the user to create a TOTP for.
+     * @param string $label Label for the TOTP. Usually the organisation or application name.
+     * @param ?string $issuer Issuer of the TOTP.
+     * @param array $params Additional parameters for the provisioning URI as key=>value pairs.
+     * @psalm-return [qrcode: string, secret: string] QR code and TOTP secret
+     * @throws InvalidArgumentException
+     * @throws InvalidConfigException
+     * @throws NotSupportedException
+     * @throws Throwable
+     * @throws \Yiisoft\Db\Exception\Exception
      */
-    public function generateQrCode(TOTPInterface $totp, ?string $label = null, ?string $issuer = null): string
+    public function createTotp(string $userId, string $label, ?string $issuer = null, array $params = []): array
     {
-        $uri = $totp->getProvisioningUri($label, $issuer);
+        $this
+            ->database
+            ->createCommand()
+            ->insert(
+                $this->totpTable,
+                [
+                    'digest' => $this->totp->getDigest(),
+                    'digits' => $this->totp->getDigits(),
+                    'leeway' => $this->totp->getLeeway(),
+                    'last_code' => '',
+                    'period' => $this->totp->getPeriod(),
+                    'secret' => $this->crypt->encryptByKey($this->totp->getSecret(), $this->encryptionKey, $userId),
+                    'user_id' => $userId,
+                ]
+            )
+            ->execute()
+        ;
 
-        return (new QRCode())->render($uri);
+        return [
+            'qrcode' => (new QRCode())->render(
+                $this->totp->getProvisioningUri($label, $issuer, $params)
+            ),
+            'secret' => $this->totp->getSecret(),
+        ];
     }
 
-    public function generateTotp(): Totp
+    /**
+     * Disable TOTP for a user by deleting their TOTP and backup codes.
+     *
+     * @param string $userId id of the user whose TOTP snd backup codes to delete.
+     * @return void
+     * @throws InvalidConfigException
+     * @throws Throwable
+     * @throws InvalidArgumentException
+     * @throws \Yiisoft\Db\Exception\Exception
+     */
+    public function disableTotp(string $userId): void
     {
-        return new Totp(
-            $this->clock,
-            $this->totpDigest,
-            $this->totpDigits,
-            $this->totpLeeway,
-            $this->totpPeriod,
-        );
+        $this
+            ->database
+            ->createCommand()
+            ->delete($this->otpBackupCodeTable, ['user_id' => $userId])
+            ->execute()
+        ;
+        $this
+            ->database
+            ->createCommand()
+            ->delete($this->totpTable, ['user_id' => $userId])
+            ->execute()
+        ;
+    }
+
+    /**
+     * Whether TOTP is enabled for a user.
+     *
+     * @param string $userId ID of the user to check
+     * @return bool true if TOTP is enabled, false if TOTP is not enabled
+     * @throws InvalidConfigException
+     * @throws Throwable
+     * @throws InvalidArgumentException
+     * @throws \Yiisoft\Db\Exception\Exception
+     */
+    public function isTotpEnabled(string $userId): bool
+    {
+        return (new Query($this->database))
+            ->from($this->totpTable)
+            ->where(['user_id' => $userId])
+            ->count()
+            === 1
+        ;
+    }
+
+    /**
+     * Verifies a TOTP or backup code.
+     * If a backup code is being verified and verification is successful, the backup code is deleted to prevent reuse.
+     *
+     * @param string $code the code to verify.
+     * @param string $userId id of the user to verify against.
+     * @return bool true is verification is successful, false if it fails
+     * @throws InvalidConfigException
+     * @throws Throwable
+     * @throws ReflectionException
+     * @throws \Yiisoft\Db\Exception\Exception
+     */
+    public function verify(string $code, string $userId): bool
+    {
+        if (preg_match(self::BACKUP_CODE_REGEX, $code) === 1) {
+            return $this->verifyBackupCode($code, $userId);
+        }
+
+        return $this->verifyOtpCode($code, $userId);
     }
 
     /**
@@ -192,7 +240,7 @@ class TotpService
      * @throws ReflectionException
      * @throws \Yiisoft\Db\Exception\Exception
      */
-    public function getTotp(string $userId): ?Totp
+    private function getTotp(string $userId): ?Totp
     {
         $row = (new Query($this->database))
             ->from($this->totpTable)
@@ -200,80 +248,28 @@ class TotpService
             ->one()
         ;
 
-        return $row === null ? null : $this->createTotp($row, $userId);
-    }
-
-    /**
-     * @throws InvalidConfigException
-     * @throws Throwable
-     * @throws NotSupportedException
-     * @throws \Yiisoft\Db\Exception\Exception
-     * @throws JsonException
-     */
-    public function saveTotp(Totp $totp, string $userId): void
-    {
-        $this
-            ->database
-            ->createCommand()
-            ->upsert(
-                $this->totpTable,
-                [
-                    'digest' => $totp->getDigest(),
-                    'digits' => $totp->getDigits(),
-                    'leeway' => $totp->getLeeway(),
-                    'last_totp' => $totp->getLastTotp(),
-                    'period' => $totp->getPeriod(),
-                    'secret' => $this->crypt->encryptByKey($totp->getSecret(), $this->key, $userId),
-                    'user_id' => $userId,
-                ]
-            )
-            ->execute()
-        ;
-    }
-
-    /**
-     * @throws InvalidConfigException
-     * @throws Throwable
-     * @throws ReflectionException
-     * @throws \Yiisoft\Db\Exception\Exception
-     */
-    public function verifyTotp(string $code, string $userId): bool
-    {
-        if (preg_match(self::OTP_CODE_REGEX, $code) === 1) {
-            $totp = $this->getTotp($userId);
-            return $totp instanceof Totp && $totp->verify($code);
+        if ($row === null) {
+            return null;
         }
-
-        return $this->verifyBackupCode($code, $userId);
-    }
-
-    /**
-     * @throws ReflectionException
-     * @throws Exception
-     */
-    private function createTotp(array $data, string $userId): Totp
-    {
-        $totp = $this->generateTotp();
 
         foreach ([
             'digest' => 'digest',
             'digits' => 'digits',
             'leeway' => 'leeway',
-            'last_totp' => 'lastTotp',
+            'last_code' => 'lastCode',
             'period' => 'period',
             'secret' => 'secret',
-            'user_id' => 'userId',
         ] as $key => $property) {
-            $reflectionProperty = new ReflectionProperty($totp, $property);
+            $reflectionProperty = new ReflectionProperty($this->totp, $property);
             $reflectionProperty->setValue(
-                $totp,
+                $this->totp,
                 $property === 'secret'
-                    ? $this->crypt->decryptByKey($data[$key], $this->key, $userId)
-                    : $data[$key]
+                    ? $this->crypt->decryptByKey($row[$key], $this->encryptionKey, $userId)
+                    : $row[$key]
             );
-        }
+        };
 
-        return $totp;
+        return $this->totp;
     }
 
     /**
@@ -283,17 +279,52 @@ class TotpService
      */
     private function verifyBackupCode(string $code, string $userId): bool
     {
-        $row = (new Query($this->database))
-            ->from($this->otpBackupCodesTable)
-            ->where(['user_id' => $userId, 'code' => $this->passwordHasher->hash($code)])
-            ->one()
+        $rows = (new Query($this->database))
+            ->from($this->otpBackupCodeTable)
+            ->where(['user_id' => $userId])
+            ->all()
         ;
 
-        if ($row !== null) {
+        foreach ($rows as $row) {
+            if ((new PasswordHasher())->validate($code, $row['code'])) {
+                $this
+                    ->database
+                    ->createCommand()
+                    ->delete($this->otpBackupCodeTable, ['id' => $row['id']])
+                    ->execute()
+                ;
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @throws InvalidConfigException
+     * @throws InvalidArgumentException
+     * @throws \Yiisoft\Db\Exception\Exception
+     * @throws Throwable
+     * @throws ReflectionException
+     */
+    private function verifyOtpCode(string $code, string $userId): bool
+    {
+        $totp = $this->getTotp($userId);
+
+        if ($totp->verify($code)) {
             $this
                 ->database
                 ->createCommand()
-                ->delete($this->otpBackupCodesTable, ['id' => $row['id']])
+                ->update(
+                    $this->totpTable,
+                    [
+                        'last_code' => $code,
+                    ],
+                    [
+                        'user_id' => $userId,
+                    ]
+                )
                 ->execute()
             ;
 
