@@ -60,9 +60,6 @@
             "BeastBytes\\Yii\\Totp\\Tests\\": "tests/"
         }
     },
-    "extra": {
-        "config-plugin-file": "config.php"
-    },
     "config": {
         "sort-packages": true,
         "allow-plugins": {
