@@ -30,7 +30,7 @@ public function enable(
     ServerRequestInterface $request,
 ): ResponseInterface
 {
-    $formModel = new OtpForm($this->totpService);
+    $formModel = new OtpForm($this->totpService, $currentUser->getId());
     
     if ($formHydrator->populateFromPostAndValidate($formModel, $request)) {
         $this->redirct('ShowBackupCodes');
@@ -76,7 +76,7 @@ public function verify(
     ServerRequestInterface $request,
 ): ResponseInterface
 {
-    $formModel = new OtpForm($this->totpService, true);
+    $formModel = new OtpForm($this->totpService, $currentUser->getId(), true);
     
     if ($formHydrator->populateFromPostAndValidate($formModel, $request)) {
         $this->redirct('verified');
@@ -110,7 +110,8 @@ final class OtpForm extends FormModel
     private string $otpCode = '';
     
     public function __construct(
-        private readonly TotpService $totpService, 
+        private readonly TotpService $totpService,
+        private readonly string $userId,
         private readonly bool $allowBackupCode = false
     )
     {        
@@ -126,7 +127,10 @@ final class OtpForm extends FormModel
                     callback: function (): Result {
                         $result = new Result();
 
-                        if (!$this->totpService->verify(str_replace(' ', '', $this->otpCode))) {
+                        if (!$this->totpService->verify(
+                            str_replace(' ', '', $this->otpCode),
+                            $this->userId
+                        )) {
                             $result->addError('Invalid Code');
                         }
 
